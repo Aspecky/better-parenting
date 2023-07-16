@@ -14,14 +14,13 @@
 bl_info = {
     "name": "Better Parenting",
     "author": "Aspecky",
-    "description": "",
+    "description": "Ctrl X to delete an object with its descendants. Shift A > Mesh > Parent to Empty for an improved parent to empty operator",
     "blender": (2, 80, 0),
-    "version": (0, 0, 1),
+    "version": (1, 0, 0),
     "category": "Object",
 }
 
 import bpy
-import time
 from mathutils import Vector
 from bpy import types, ops, props
 
@@ -148,7 +147,6 @@ class ParentToEmpty(types.Operator):
             matrix = empty.matrix_world.copy()
             empty.parent = parent
             empty.matrix_world = matrix
-
 
         ops.object.select_all(action="DESELECT")
         empty.select_set(True)
