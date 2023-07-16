@@ -1,0 +1,192 @@
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTIBILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+bl_info = {
+    "name": "Better Parenting",
+    "author": "Aspecky",
+    "description": "",
+    "blender": (2, 80, 0),
+    "version": (0, 0, 1),
+    "category": "Object",
+}
+
+import bpy
+from bpy.types import Context
+from mathutils import Vector
+from bpy import types, ops, props
+
+OPERATOR_NAMESPACE = "better_parenting."
+
+
+class DeleteRecursive(types.Operator):
+    bl_idname = OPERATOR_NAMESPACE + "delete_recursive"
+    bl_label = "Delete Recursive"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = {}
+        for parent in context.selected_objects:
+            objs[parent] = True
+            for child in parent.children_recursive:
+                objs[child] = True
+
+        for obj in objs.keys():
+            bpy.data.objects.remove(obj)
+
+        return {"FINISHED"}
+
+    def menu_func(self, context):
+        self.layout.operator(DeleteRecursive.bl_idname)
+
+
+def parent_with_transform(child: types.Object, parent: types.Object):
+    ops.object.select_all(action="DESELECT")
+    child.select_set(True)
+    parent.select_set(True)
+    bpy.context.view_layer.objects.active = parent
+    ops.object.parent_set(keep_transform=True)
+
+
+def get_bounding_box(objs):
+    min_point = Vector((float("inf"), float("inf"), float("inf")))
+    max_point = Vector((float("-inf"), float("-inf"), float("-inf")))
+    for obj in objs:
+        for vertex in obj.data.vertices:
+            world_pos = obj.matrix_world @ vertex.co
+            min_point.x = min(min_point.x, world_pos.x)
+            min_point.y = min(min_point.y, world_pos.y)
+            min_point.z = min(min_point.z, world_pos.z)
+            max_point.x = max(max_point.x, world_pos.x)
+            max_point.y = max(max_point.y, world_pos.y)
+            max_point.z = max(max_point.z, world_pos.z)
+
+    return (min_point + max_point) / 2, max_point - min_point
+
+
+class ParentToEmpty(types.Operator):
+    bl_idname = OPERATOR_NAMESPACE + "parent_to_empty"
+    bl_label = "Parent to Empty"
+    bl_options = {"REGISTER", "UNDO"}
+
+    location: props.EnumProperty(
+        name="Location",
+        description="Location of the empty",
+        items=[
+            ("TOP", "Top", "Bounding box top"),
+            ("CENTER", "Center", "Bounding box center"),
+            ("BOTTOM", "Bottom", "Bounding box bottom"),
+        ],
+        default="CENTER",
+    )
+
+    show_name: props.BoolProperty(name="Name", default=True)
+    show_axis: props.BoolProperty(name="Axes", default=False)
+    show_in_front: props.BoolProperty(name="In Front", default=True)
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.selected_objects) != 0
+
+    def execute(self, context):
+        objs = set(context.selected_objects)
+        parent = next(iter(objs)).parent
+
+        empty = bpy.data.objects.new("Empty", None)
+        empty.empty_display_type = "PLAIN_AXES"
+        context.scene.collection.objects.link(empty)
+        empty.location = sum(
+            (obj.matrix_world.translation for obj in objs), Vector()
+        ) / len(objs)
+
+        location = empty.location
+        meshes = []
+        for obj in objs:
+            if obj.type == "MESH":
+                meshes.append(obj)
+        if len(meshes) != 0:
+            center, size = get_bounding_box(meshes)
+            if self.location == "TOP":
+                location = center + Vector((0, 0, size.z/2))
+            elif self.location == "CENTER":
+                location = center
+            elif self.location == "BOTTOM":
+                location = center - Vector((0, 0, size.z/2))
+                
+
+        empty.location = location
+        empty.show_name = self.show_name
+        empty.show_axis = self.show_axis
+        empty.show_in_front = self.show_in_front
+
+        if parent:
+            parent_with_transform(empty, parent)
+
+        for obj in objs:
+            if obj.parent in objs:
+                continue
+            parent_with_transform(obj, empty)
+
+        ops.object.select_all(action="DESELECT")
+        empty.select_set(True)
+
+        return {"FINISHED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "location")
+        split = layout.split()
+
+        col = split.column(align=True)
+        col.label(text="Show:")
+
+        col = split.column()
+        col.prop(self, "show_name")
+        col.prop(self, "show_axis")
+        col.prop(self, "show_in_front")
+
+        split.column()
+
+    def menu_func(self, context):
+        self.layout.operator(ParentToEmpty.bl_idname, icon="OUTLINER_OB_EMPTY")
+
+
+register_classes, unregister_classes = bpy.utils.register_classes_factory(
+    [
+        DeleteRecursive,
+        ParentToEmpty,
+    ]
+)
+
+
+def register():
+    register_classes()
+    types.VIEW3D_MT_object.append(DeleteRecursive.menu_func)
+    types.VIEW3D_MT_mesh_add.append(ParentToEmpty.menu_func)
+
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps.new(name="Window")
+    km.keymap_items.new(DeleteRecursive.bl_idname, "X", "PRESS", ctrl=True)
+
+
+def unregister():
+    unregister_classes()
+    types.VIEW3D_MT_object.remove(DeleteRecursive.menu_func)
+    types.VIEW3D_MT_mesh_add.remove(ParentToEmpty.menu_func)
+
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps["Window"]
+    km.keymap_items.remove(km.keymap_items.get(DeleteRecursive.bl_idname))
+    wm.keyconfigs.addon.keymaps.remove(km)
+
+
+if __name__ == "__main__":
+    register()
