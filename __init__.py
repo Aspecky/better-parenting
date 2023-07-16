@@ -21,7 +21,7 @@ bl_info = {
 }
 
 import bpy
-from bpy.types import Context
+import time
 from mathutils import Vector
 from bpy import types, ops, props
 
@@ -73,6 +73,12 @@ def get_bounding_box(objs):
     return (min_point + max_point) / 2, max_point - min_point
 
 
+def apply_location_to_matrix(location, matrix):
+    matrix[0][3] = location.x
+    matrix[1][3] = location.y
+    matrix[2][3] = location.z
+
+
 class ParentToEmpty(types.Operator):
     bl_idname = OPERATOR_NAMESPACE + "parent_to_empty"
     bl_label = "Parent to Empty"
@@ -99,14 +105,14 @@ class ParentToEmpty(types.Operator):
 
     def execute(self, context):
         objs = set(context.selected_objects)
-        parent = next(iter(objs)).parent
 
         empty = bpy.data.objects.new("Empty", None)
         empty.empty_display_type = "PLAIN_AXES"
         context.scene.collection.objects.link(empty)
-        empty.location = sum(
-            (obj.matrix_world.translation for obj in objs), Vector()
-        ) / len(objs)
+        location = sum((obj.matrix_world.translation for obj in objs), Vector()) / len(
+            objs
+        )
+        apply_location_to_matrix(location, empty.matrix_world)
 
         location = empty.location
         meshes = []
@@ -116,28 +122,37 @@ class ParentToEmpty(types.Operator):
         if len(meshes) != 0:
             center, size = get_bounding_box(meshes)
             if self.location == "TOP":
-                location = center + Vector((0, 0, size.z/2))
+                location = center + Vector((0, 0, size.z / 2))
             elif self.location == "CENTER":
                 location = center
             elif self.location == "BOTTOM":
-                location = center - Vector((0, 0, size.z/2))
-                
+                location = center - Vector((0, 0, size.z / 2))
 
-        empty.location = location
+        apply_location_to_matrix(location, empty.matrix_world)
         empty.show_name = self.show_name
         empty.show_axis = self.show_axis
         empty.show_in_front = self.show_in_front
 
-        if parent:
-            parent_with_transform(empty, parent)
-
+        parent = None
         for obj in objs:
             if obj.parent in objs:
                 continue
-            parent_with_transform(obj, empty)
+            if parent is None:
+                parent = obj.parent
+
+            matrix = obj.matrix_world.copy()
+            obj.parent = empty
+            obj.matrix_world = matrix
+
+        if parent:
+            matrix = empty.matrix_world.copy()
+            empty.parent = parent
+            empty.matrix_world = matrix
+
 
         ops.object.select_all(action="DESELECT")
         empty.select_set(True)
+        bpy.context.view_layer.objects.active = empty
 
         return {"FINISHED"}
 
