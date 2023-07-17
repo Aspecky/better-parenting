@@ -33,13 +33,13 @@ class DeleteRecursive(types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        objs = {}
+        objs = set()
         for parent in context.selected_objects:
-            objs[parent] = True
+            objs.add(parent)
             for child in parent.children_recursive:
-                objs[child] = True
+                objs.add(child)
 
-        for obj in objs.keys():
+        for obj in objs:
             bpy.data.objects.remove(obj)
 
         return {"FINISHED"}
@@ -174,8 +174,24 @@ class ParentToEmpty(types.Operator):
         self.layout.operator(ParentToEmpty.bl_idname, icon="OUTLINER_OB_EMPTY")
 
 
+class SelectDescendants(types.Operator):
+    bl_idname = OPERATOR_NAMESPACE + "select_descendants"
+    bl_label = "Select Descendants"
+    bl_options = {"REGISTER", "UNDO"}
+    
+    @classmethod
+    def poll(cls, context):
+        return len(context.selected_objects) != 0
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            for obj in obj.children_recursive:
+                obj.select_set(True)
+        return {"FINISHED"}
+    
 register_classes, unregister_classes = bpy.utils.register_classes_factory(
     [
+        SelectDescendants,
         DeleteRecursive,
         ParentToEmpty,
     ]
@@ -189,6 +205,7 @@ def register():
 
     km = bpy.context.window_manager.keyconfigs.addon.keymaps.new(name="Window")
     km.keymap_items.new(DeleteRecursive.bl_idname, "X", "PRESS", ctrl=True)
+    km.keymap_items.new(SelectDescendants.bl_idname, "Q", "PRESS", shift=True)
 
 
 def unregister():
@@ -196,10 +213,9 @@ def unregister():
     types.VIEW3D_MT_object.remove(DeleteRecursive.menu_func)
     types.VIEW3D_MT_mesh_add.remove(ParentToEmpty.menu_func)
 
-    wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps["Window"]
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps["Window"]
     km.keymap_items.remove(km.keymap_items.get(DeleteRecursive.bl_idname))
-    wm.keyconfigs.addon.keymaps.remove(km)
+    km.keymap_items.remove(km.keymap_items.get(SelectDescendants.bl_idname))
 
 
 if __name__ == "__main__":
