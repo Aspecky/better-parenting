@@ -16,7 +16,7 @@ bl_info = {
     "author": "Aspecky",
     "description": "Ctrl X to delete an object with its descendants. Shift A > Mesh > Parent to Empty for an improved parent to empty operator",
     "blender": (2, 80, 0),
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "category": "Object",
 }
 
@@ -33,13 +33,13 @@ class DeleteRecursive(types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        objs = {}
+        objs = set()
         for parent in context.selected_objects:
-            objs[parent] = True
+            objs.add(parent)
             for child in parent.children_recursive:
-                objs[child] = True
+                objs.add(child)
 
-        for obj in objs.keys():
+        for obj in objs:
             bpy.data.objects.remove(obj)
 
         return {"FINISHED"}
@@ -148,6 +148,7 @@ class ParentToEmpty(types.Operator):
             empty.parent = parent
             empty.matrix_world = matrix
 
+
         ops.object.select_all(action="DESELECT")
         empty.select_set(True)
         bpy.context.view_layer.objects.active = empty
@@ -173,8 +174,23 @@ class ParentToEmpty(types.Operator):
         self.layout.operator(ParentToEmpty.bl_idname, icon="OUTLINER_OB_EMPTY")
 
 
+class SelectRecursive(types.Operator):
+    bl_idname = OPERATOR_NAMESPACE + "select_recursive"
+    bl_label = "Select Recursive"
+    bl_options = {"REGISTER", "UNDO"}
+     
+    def execute(self, context):
+        for obj in context.selected_objects:
+            for obj in obj.children_recursive:
+                obj.select_set(True)
+        return {"FINISHED"}
+    
+    def menu_func(self, context):
+        self.layout.operator(SelectRecursive.bl_idname)
+    
 register_classes, unregister_classes = bpy.utils.register_classes_factory(
     [
+        SelectRecursive,
         DeleteRecursive,
         ParentToEmpty,
     ]
@@ -183,22 +199,26 @@ register_classes, unregister_classes = bpy.utils.register_classes_factory(
 
 def register():
     register_classes()
+    types.VIEW3D_MT_object_context_menu.append(SelectRecursive.menu_func)
+    types.VIEW3D_MT_object.append(SelectRecursive.menu_func)
     types.VIEW3D_MT_object.append(DeleteRecursive.menu_func)
     types.VIEW3D_MT_mesh_add.append(ParentToEmpty.menu_func)
 
     km = bpy.context.window_manager.keyconfigs.addon.keymaps.new(name="Window")
     km.keymap_items.new(DeleteRecursive.bl_idname, "X", "PRESS", ctrl=True)
+    km.keymap_items.new(SelectRecursive.bl_idname, "Q", "PRESS", shift=True)
 
 
 def unregister():
     unregister_classes()
+    types.VIEW3D_MT_object_context_menu.remove(SelectRecursive.menu_func)
+    types.VIEW3D_MT_object.remove(SelectRecursive.menu_func)
     types.VIEW3D_MT_object.remove(DeleteRecursive.menu_func)
     types.VIEW3D_MT_mesh_add.remove(ParentToEmpty.menu_func)
 
-    wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps["Window"]
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps["Window"]
     km.keymap_items.remove(km.keymap_items.get(DeleteRecursive.bl_idname))
-    wm.keyconfigs.addon.keymaps.remove(km)
+    km.keymap_items.remove(km.keymap_items.get(SelectRecursive.bl_idname))
 
 
 if __name__ == "__main__":
