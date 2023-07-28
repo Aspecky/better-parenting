@@ -90,6 +90,7 @@ class ParentToEmpty(types.Operator):
             ("TOP", "Top", "Bounding box top"),
             ("CENTER", "Center", "Bounding box center"),
             ("BOTTOM", "Bottom", "Bounding box bottom"),
+            ("CURSOR", "Cursor", "Cursor position"),
         ],
         default="CENTER",
     )
@@ -126,7 +127,10 @@ class ParentToEmpty(types.Operator):
                 location = center
             elif self.location == "BOTTOM":
                 location = center - Vector((0, 0, size.z / 2))
-
+        
+        if self.location == "CURSOR":
+            location = context.scene.cursor.location
+            
         apply_location_to_matrix(location, empty.matrix_world)
         empty.show_name = self.show_name
         empty.show_axis = self.show_axis
